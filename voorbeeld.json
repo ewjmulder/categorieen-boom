@@ -11,32 +11,17 @@
           "children": [
             {
               "id": "voorbeeld-boerderij",
-              "label": "Boerderij",
-              "children": [
-                {
-                  "id": "voorbeeld-koe",
-                  "label": "Koe",
-                  "children": []
-                }
-              ]
+              "label": "Boerderijdieren"
             },
             {
               "id": "voorbeeld-bos",
-              "label": "Bosdieren",
-              "children": []
+              "label": "Bosdieren"
             }
           ]
         },
         {
           "id": "voorbeeld-waterdieren",
-          "label": "Waterdieren",
-          "children": [
-            {
-              "id": "voorbeeld-vis",
-              "label": "Vis",
-              "children": []
-            }
-          ]
+          "label": "Waterdieren"
         }
       ]
     },
@@ -46,19 +31,11 @@
       "children": [
         {
           "id": "voorbeeld-meubels",
-          "label": "Meubels",
-          "children": [
-            {
-              "id": "voorbeeld-stoel",
-              "label": "Stoel",
-              "children": []
-            }
-          ]
+          "label": "Meubels"
         },
         {
           "id": "voorbeeld-speelgoed",
-          "label": "Speelgoed",
-          "children": []
+          "label": "Speelgoed"
         }
       ]
     },
@@ -68,8 +45,7 @@
       "children": [
         {
           "id": "voorbeeld-fruit",
-          "label": "Fruit",
-          "children": []
+          "label": "Fruit"
         }
       ]
     }

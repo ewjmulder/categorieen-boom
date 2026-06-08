@@ -35,11 +35,13 @@
   const wordTray = document.querySelector("#word-tray");
   const wordList = document.querySelector("#word-list");
   const wordProgress = document.querySelector("#word-progress");
+  const resetTreeButton = document.querySelector("#reset-tree");
   const loadExampleButton = document.querySelector("#load-example");
   const exportButton = document.querySelector("#export-json");
   const totalCount = document.querySelector("#total-count");
   const largestCount = document.querySelector("#largest-count");
   const confirmOverlay = document.querySelector("#confirm-overlay");
+  const confirmTitle = document.querySelector("#confirm-title");
   const confirmMessage = document.querySelector("#confirm-message");
   const cancelDeleteButton = document.querySelector("#cancel-delete");
   const confirmDeleteButton = document.querySelector("#confirm-delete");
@@ -47,12 +49,14 @@
   let state = loadState();
   let editing = null;
   let selectedEdge = null;
-  let pendingDeleteId = null;
+  let pendingConfirmation = null;
   let panState = null;
   let suppressClickAfterPan = false;
   let edgeHoverTimer = null;
   let mode = "build";
-  let wordBank = DEFAULT_WORDS;
+  let baseWordBank = DEFAULT_WORDS;
+  let wordBank = mergeWordBank();
+  let isAddingWord = false;
   let wordDrag = null;
   let wordAutoScrollFrame = null;
   let layout = {
@@ -84,10 +88,28 @@
   }, true);
 
   wordList.addEventListener("pointerdown", startWordDrag);
+  wordList.addEventListener("click", (event) => {
+    const deleteButton = event.target.closest("[data-action='delete-word']");
+    if (deleteButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeWord(deleteButton.dataset.wordId);
+      return;
+    }
+
+    const addButton = event.target.closest("[data-action='add-word']");
+    if (!addButton) {
+      return;
+    }
+
+    isAddingWord = true;
+    renderWordTray();
+  });
   document.addEventListener("pointermove", moveWordDrag);
   document.addEventListener("pointerup", stopWordDrag);
   document.addEventListener("pointercancel", cancelWordDrag);
 
+  treeLayer.addEventListener("pointerdown", startPlacedWordDrag);
   treeLayer.addEventListener("click", (event) => {
     if (mode !== "build") {
       return;
@@ -166,6 +188,19 @@
     scheduleEdgePlusHide();
   });
 
+  resetTreeButton.addEventListener("click", () => {
+    if (state.roots.length === 0) {
+      return;
+    }
+
+    openConfirmation({
+      type: "reset",
+      title: "Hele boom leegmaken?",
+      message: "Alle categorieen, geplaatste woorden en zelf toegevoegde woorden worden definitief verwijderd.",
+      confirmLabel: "Boom leegmaken"
+    });
+  });
+
   loadExampleButton.addEventListener("click", async () => {
     if (state.roots.length > 0) {
       const confirmed = window.confirm("Dit vervangt je huidige boom. Weet je het zeker?");
@@ -182,6 +217,8 @@
 
       const example = await response.json();
       state = normalizeState(example);
+      wordBank = mergeWordBank();
+      isAddingWord = false;
       editing = null;
       selectedEdge = null;
       saveState();
@@ -205,31 +242,39 @@
     URL.revokeObjectURL(url);
   });
 
-  cancelDeleteButton.addEventListener("click", closeDeleteConfirmation);
+  cancelDeleteButton.addEventListener("click", closeConfirmation);
 
   confirmDeleteButton.addEventListener("click", () => {
-    if (!pendingDeleteId) {
+    if (!pendingConfirmation) {
       return;
     }
 
-    removeNode(pendingDeleteId);
+    if (pendingConfirmation.type === "reset") {
+      resetTree();
+      closeConfirmation();
+      return;
+    }
+
+    removeNode(pendingConfirmation.nodeId);
     editing = null;
     selectedEdge = null;
-    closeDeleteConfirmation();
+    closeConfirmation();
     saveState();
     render();
   });
 
   confirmOverlay.addEventListener("click", (event) => {
     if (event.target === confirmOverlay) {
-      closeDeleteConfirmation();
+      closeConfirmation();
     }
   });
 
+  confirmOverlay.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeConfirmation();
+  });
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !confirmOverlay.hidden) {
-      closeDeleteConfirmation();
-    }
     if (event.key === "Escape" && wordDrag) {
       cancelWordDrag(event);
     }
@@ -260,11 +305,13 @@
       const rawWords = await response.json();
       const words = normalizeWords(rawWords);
       if (words.length > 0) {
-        wordBank = words;
+        baseWordBank = words;
+        wordBank = mergeWordBank();
         render();
       }
     } catch (error) {
-      wordBank = DEFAULT_WORDS;
+      baseWordBank = DEFAULT_WORDS;
+      wordBank = mergeWordBank();
     }
   }
 
@@ -326,6 +373,10 @@
   }
 
   function startWordDrag(event) {
+    if (event.button !== 0 || event.target.closest("[data-action='delete-word']")) {
+      return;
+    }
+
     const card = event.target.closest(".word-card");
     if (!card || mode !== "place") {
       return;
@@ -336,11 +387,35 @@
       return;
     }
 
+    beginWordDrag(event, card, word);
+  }
+
+  function startPlacedWordDrag(event) {
+    if (event.button !== 0 || mode !== "place") {
+      return;
+    }
+
+    const wordNode = event.target.closest(".word-node");
+    if (!wordNode) {
+      return;
+    }
+
+    const word = findWord(wordNode.dataset.wordId);
+    if (!word) {
+      return;
+    }
+
+    beginWordDrag(event, wordNode, word);
+  }
+
+  function beginWordDrag(event, sourceElement, word) {
     event.preventDefault();
-    card.setPointerCapture(event.pointerId);
+    sourceElement.setPointerCapture(event.pointerId);
+    sourceElement.classList.add("is-being-dragged");
     wordDrag = {
       pointerId: event.pointerId,
       word,
+      sourceElement,
       ghost: createWordGhost(word),
       targetCategoryId: null,
       clientX: event.clientX,
@@ -387,6 +462,9 @@
     clearDropTarget();
     if (wordDrag && wordDrag.ghost) {
       wordDrag.ghost.remove();
+    }
+    if (wordDrag && wordDrag.sourceElement) {
+      wordDrag.sourceElement.classList.remove("is-being-dragged");
     }
     wordDrag = null;
     document.body.classList.remove("is-word-dragging");
@@ -516,6 +594,7 @@
       ? "Beweeg hier met de muis om je eerste hoofdcategorie te maken."
       : "Maak eerst een categorie in Bouwmodus om woorden te kunnen plaatsen.";
     wordTray.hidden = mode !== "place";
+    resetTreeButton.disabled = state.roots.length === 0;
     renderStats();
     renderWordTray();
     setCanvasSize(layout.width, layout.height);
@@ -540,6 +619,7 @@
   function renderWordTray() {
     if (mode !== "place") {
       wordList.innerHTML = "";
+      isAddingWord = false;
       return;
     }
 
@@ -550,24 +630,142 @@
     wordProgress.textContent = `${placedWordIds.size} van ${wordBank.length} geplaatst`;
     wordList.innerHTML = "";
 
-    if (availableWords.length === 0) {
+    if (availableWords.length === 0 && !isAddingWord) {
       const empty = document.createElement("div");
       empty.className = "word-list-empty";
       empty.textContent = "Alle woorden zijn geplaatst.";
       wordList.appendChild(empty);
-      return;
     }
 
     for (const word of availableWords) {
-      const card = document.createElement("button");
-      card.type = "button";
+      const card = document.createElement("div");
       card.className = "word-card";
       card.dataset.wordId = word.id;
       card.style.setProperty("--word-hue", getWordHue(word.variant));
-      card.textContent = word.label;
       card.title = `${word.label} plaatsen`;
+
+      const label = document.createElement("span");
+      label.className = "word-card-label";
+      label.textContent = word.label;
+      card.appendChild(label);
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "word-card-delete";
+      deleteButton.dataset.action = "delete-word";
+      deleteButton.dataset.wordId = word.id;
+      deleteButton.setAttribute("aria-label", `${word.label} verwijderen`);
+      deleteButton.title = `${word.label} verwijderen`;
+      deleteButton.textContent = "×";
+      card.appendChild(deleteButton);
+
       wordList.appendChild(card);
     }
+
+    if (isAddingWord) {
+      wordList.appendChild(createWordInput());
+    } else {
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.className = "add-word-card";
+      addButton.dataset.action = "add-word";
+      addButton.title = "Zelf een woord toevoegen";
+      addButton.setAttribute("aria-label", "Zelf een woord toevoegen");
+      addButton.textContent = "+";
+      wordList.appendChild(addButton);
+    }
+  }
+
+  function createWordInput() {
+    const wrapper = document.createElement("div");
+    const input = document.createElement("input");
+
+    wrapper.className = "word-card word-input-card";
+    wrapper.style.setProperty("--word-hue", getWordHue(wordBank.length));
+    input.type = "text";
+    input.maxLength = 28;
+    input.placeholder = "Nieuw woord";
+    input.setAttribute("aria-label", "Nieuw concreet woord");
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        addCustomWord(input.value);
+      }
+      if (event.key === "Escape") {
+        isAddingWord = false;
+        renderWordTray();
+      }
+    });
+    input.addEventListener("blur", () => {
+      if (isAddingWord) {
+        addCustomWord(input.value);
+      }
+    });
+    wrapper.appendChild(input);
+
+    window.requestAnimationFrame(() => input.focus());
+    return wrapper;
+  }
+
+  function addCustomWord(rawLabel) {
+    const label = cleanLabel(rawLabel);
+    isAddingWord = false;
+
+    if (!label) {
+      renderWordTray();
+      return;
+    }
+
+    const word = {
+      id: `custom-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`,
+      label,
+      variant: Math.floor(Math.random() * WORD_HUES.length)
+    };
+    state.customWords.push(word);
+    wordBank = mergeWordBank();
+    saveState();
+    render();
+  }
+
+  function mergeWordBank() {
+    const words = [];
+    const seenIds = new Set();
+    const hiddenWords = new Set(state.hiddenWords || []);
+
+    for (const word of [...baseWordBank, ...(state.customWords || [])]) {
+      if (hiddenWords.has(word.id) || seenIds.has(word.id)) {
+        continue;
+      }
+      seenIds.add(word.id);
+      words.push(word);
+    }
+
+    return words;
+  }
+
+  function removeWord(wordId) {
+    const word = findWord(wordId);
+    if (!word) {
+      return;
+    }
+
+    state.placements = (state.placements || []).filter(
+      (placement) => placement.wordId !== wordId
+    );
+
+    if (wordId.startsWith("custom-")) {
+      state.customWords = (state.customWords || []).filter(
+        (customWord) => customWord.id !== wordId
+      );
+    } else {
+      state.hiddenWords ||= [];
+      if (!state.hiddenWords.includes(wordId)) {
+        state.hiddenWords.push(wordId);
+      }
+    }
+
+    wordBank = mergeWordBank();
+    saveState();
+    render();
   }
 
   function buildDisplayRoots() {
@@ -664,7 +862,10 @@
 
       element.className = isWord ? "node word-node" : "node category-node";
       element.dataset.id = node.id;
-      if (!isWord) {
+      if (isWord) {
+        element.dataset.wordId = node.wordId;
+        element.title = `${node.label} naar een andere categorie slepen`;
+      } else {
         element.dataset.categoryId = node.id;
       }
       element.style.left = `${nodeLayout.x}px`;
@@ -780,7 +981,7 @@
     button.title = "Hoofdcategorie toevoegen";
     button.setAttribute("aria-label", "Hoofdcategorie toevoegen");
     button.textContent = "+";
-    button.style.left = `${state.roots.length > 0 ? layout.nextRootX : workspace.clientWidth / 2}px`;
+    button.style.left = `${layout.nextRootX}px`;
     button.style.top = `${PADDING_TOP}px`;
     treeLayer.appendChild(button);
   }
@@ -912,17 +1113,47 @@
     }
 
     selectedEdge = null;
-    pendingDeleteId = nodeId;
-    confirmMessage.textContent = node.children.length > 0
-      ? `"${node.label}" heeft subcategorieen. Alles daaronder wordt ook verwijderd.`
-      : `Weet je zeker dat je "${node.label}" wilt verwijderen?`;
-    confirmOverlay.hidden = false;
+    openConfirmation({
+      type: "delete",
+      nodeId,
+      title: "Categorie verwijderen?",
+      message: node.children.length > 0
+        ? `"${node.label}" heeft subcategorieen. Alles daaronder wordt ook verwijderd.`
+        : `Weet je zeker dat je "${node.label}" wilt verwijderen?`,
+      confirmLabel: "Verwijderen"
+    });
+  }
+
+  function openConfirmation(action) {
+    pendingConfirmation = action;
+    confirmTitle.textContent = action.title;
+    confirmMessage.textContent = action.message;
+    confirmDeleteButton.textContent = action.confirmLabel;
+    if (!confirmOverlay.open) {
+      confirmOverlay.showModal();
+    }
     confirmDeleteButton.focus();
   }
 
-  function closeDeleteConfirmation() {
-    pendingDeleteId = null;
-    confirmOverlay.hidden = true;
+  function closeConfirmation() {
+    pendingConfirmation = null;
+    if (confirmOverlay.open) {
+      confirmOverlay.close();
+    }
+  }
+
+  function resetTree() {
+    cancelWordDrag();
+    state = { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
+    wordBank = mergeWordBank();
+    isAddingWord = false;
+    editing = null;
+    selectedEdge = null;
+    mode = "build";
+    workspace.scrollLeft = 0;
+    workspace.scrollTop = 0;
+    saveState();
+    render();
   }
 
   function commitEdit(nodeId, rawValue) {
@@ -1162,13 +1393,13 @@
   function loadState() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) {
-      return { version: 1, roots: [] };
+      return { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
     }
 
     try {
       return normalizeState(JSON.parse(saved));
     } catch (error) {
-      return { version: 1, roots: [] };
+      return { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
     }
   }
 
@@ -1221,10 +1452,20 @@
       }
     }
 
+    const customWords = normalizeWords(rawState.customWords).map((word) => ({
+      ...word,
+      id: word.id.startsWith("custom-") ? word.id : `custom-${word.id}`
+    }));
+    const hiddenWords = Array.isArray(rawState.hiddenWords)
+      ? [...new Set(rawState.hiddenWords.filter((wordId) => typeof wordId === "string"))]
+      : [];
+
     return {
       version: 1,
       roots,
-      placements
+      placements,
+      customWords,
+      hiddenWords
     };
   }
 

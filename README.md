@@ -12,15 +12,37 @@ python3 -m http.server 8000
 
 Open daarna `http://localhost:8000`.
 
-## Publiceren
+## Publiceren met Firebase Hosting
 
-De app heeft geen buildstap en geen dependencies. Publiceer deze bestanden samen op een gewone statische host:
+De app heeft geen buildstap en geen dependencies. Voor deployment is alleen de
+[Firebase CLI](https://firebase.google.com/docs/cli) nodig.
 
-- `index.html`
-- `styles.css`
-- `app.js`
-- `voorbeeld.json`
-- `woorden.json`
+1. Maak in de Firebase Console een project aan of kies een bestaand project.
+2. Installeer de CLI en log in:
+
+```bash
+npm install -g firebase-tools
+firebase login
+```
+
+Gebruik `firebase login --reauth` als de CLI meldt dat bestaande inloggegevens
+zijn verlopen.
+
+3. Deploy de site met het Firebase-project-ID:
+
+```bash
+./scripts/deploy-firebase.sh jouw-project-id
+```
+
+Het project-ID staat in de Firebase Console bij **Projectinstellingen**. Je kunt
+het ook via een omgevingsvariabele instellen:
+
+```bash
+FIREBASE_PROJECT_ID=jouw-project-id ./scripts/deploy-firebase.sh
+```
+
+Het script publiceert via Firebase Hosting alleen de statische websitebestanden.
+De gegevens blijven voorlopig lokaal in de browser opgeslagen.
 
 ## Gegevens
 
@@ -29,6 +51,8 @@ De boom wordt automatisch opgeslagen in `localStorage` van de browser. Met **JSO
 `voorbeeld.json` bevat de voorbeeldboom en kan handmatig worden aangepast.
 
 `woorden.json` bevat de losse woorden voor de Plaatsmodus. Ieder woord heeft een vaste `id`, een zichtbaar `label` en een kleurvariant.
+
+Via het pluskaartje achteraan de woordlade kunnen ook eigen woorden worden toegevoegd. Deze worden lokaal bij de boom opgeslagen.
 
 ## Modi
 
