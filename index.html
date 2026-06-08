@@ -8,9 +8,13 @@
   </head>
   <body>
     <header class="app-header">
-      <div>
+      <div class="app-intro">
         <h1>Categorie&euml;nboom</h1>
-        <p>Maak woorden, zet ze in groepjes en ontdek hoe categorie&euml;n onder elkaar passen.</p>
+        <p id="mode-description">Maak categorie&euml;n en ontdek hoe ze onder elkaar passen.</p>
+        <nav class="mode-switch" aria-label="Kies een modus">
+          <button class="mode-button is-active" type="button" data-mode="build">Bouwmodus</button>
+          <button class="mode-button" type="button" data-mode="place">Plaatsmodus</button>
+        </nav>
       </div>
       <section class="scoreboard" aria-label="Statistieken">
         <div
@@ -36,27 +40,47 @@
       </div>
     </header>
 
-    <main class="workspace-shell">
-      <section
-        id="workspace"
-        class="workspace"
-        aria-label="Interactieve categorieenboom"
-      >
-        <svg id="connections" class="connections" aria-hidden="true"></svg>
-        <div id="tree" class="tree-layer"></div>
-        <div id="empty-hint" class="empty-hint">
-          Beweeg hier met de muis om je eerste hoofdcategorie te maken.
+    <main class="app-main">
+      <div class="workspace-shell">
+        <section
+          id="workspace"
+          class="workspace"
+          aria-label="Interactieve categorieenboom"
+        >
+          <div id="mode-badge" class="mode-badge">Bouwmodus</div>
+          <svg id="connections" class="connections" aria-hidden="true"></svg>
+          <div id="tree" class="tree-layer"></div>
+          <div id="empty-hint" class="empty-hint">
+            Beweeg hier met de muis om je eerste hoofdcategorie te maken.
+          </div>
+        </section>
+      </div>
+
+      <section id="word-tray" class="word-tray" aria-labelledby="word-tray-title" hidden>
+        <div class="word-tray-heading">
+          <div>
+            <span class="word-tray-kicker">Plaatsmodus</span>
+            <h2 id="word-tray-title">Sleep een woord naar een categorie</h2>
+          </div>
+          <span id="word-progress" class="word-progress">0 van 10 geplaatst</span>
         </div>
+        <div id="word-list" class="word-list"></div>
       </section>
     </main>
 
-    <aside class="help-panel">
+    <aside class="help-panel build-help">
       <strong>Zo werkt het:</strong>
       <span>gebruik het plusje rechtsboven voor een hoofdcategorie</span>
       <span>sleep de lege ruimte om door de boom te bewegen</span>
       <span>beweeg over een bolletje voor toevoegen of verwijderen</span>
       <span>dubbelklik op een woord om het te veranderen</span>
       <span>beweeg over een lijn om er iets tussen te zetten</span>
+    </aside>
+    <aside class="help-panel place-help">
+      <strong>Plaatsmodus:</strong>
+      <span>sleep een woordkaartje naar een categorie</span>
+      <span>de categorie licht op als je goed zit</span>
+      <span>houd het woord bij een rand om automatisch te scrollen</span>
     </aside>
 
     <div id="confirm-overlay" class="confirm-overlay" hidden>

@@ -10,10 +10,30 @@
   const PADDING_TOP = 88;
   const PADDING_BOTTOM = 110;
   const ROOT_HUES = [212, 142, 275, 24, 336, 184, 45, 250, 7, 103];
+  const WORD_HUES = [28, 190, 328, 92, 252];
+  const DEFAULT_WORDS = [
+    { id: "olifant", label: "Olifant", variant: 0 },
+    { id: "dolfijn", label: "Dolfijn", variant: 1 },
+    { id: "stoel", label: "Stoel", variant: 2 },
+    { id: "fiets", label: "Fiets", variant: 3 },
+    { id: "appel", label: "Appel", variant: 4 },
+    { id: "brood", label: "Brood", variant: 0 },
+    { id: "tulp", label: "Tulp", variant: 1 },
+    { id: "kasteel", label: "Kasteel", variant: 2 },
+    { id: "lepel", label: "Lepel", variant: 3 },
+    { id: "trein", label: "Trein", variant: 4 }
+  ];
 
   const workspace = document.querySelector("#workspace");
   const treeLayer = document.querySelector("#tree");
   const connections = document.querySelector("#connections");
+  const modeButtons = Array.from(document.querySelectorAll(".mode-button"));
+  const modeDescription = document.querySelector("#mode-description");
+  const modeBadge = document.querySelector("#mode-badge");
+  const emptyHint = document.querySelector("#empty-hint");
+  const wordTray = document.querySelector("#word-tray");
+  const wordList = document.querySelector("#word-list");
+  const wordProgress = document.querySelector("#word-progress");
   const loadExampleButton = document.querySelector("#load-example");
   const exportButton = document.querySelector("#export-json");
   const totalCount = document.querySelector("#total-count");
@@ -30,6 +50,10 @@
   let panState = null;
   let suppressClickAfterPan = false;
   let edgeHoverTimer = null;
+  let mode = "build";
+  let wordBank = DEFAULT_WORDS;
+  let wordDrag = null;
+  let wordAutoScrollFrame = null;
   let layout = {
     nodes: new Map(),
     edges: [],
@@ -38,6 +62,11 @@
   };
 
   render();
+  loadWordBank();
+
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
 
   workspace.addEventListener("pointerdown", startPanning);
   workspace.addEventListener("pointermove", movePanning);
@@ -53,7 +82,16 @@
     suppressClickAfterPan = false;
   }, true);
 
+  wordList.addEventListener("pointerdown", startWordDrag);
+  document.addEventListener("pointermove", moveWordDrag);
+  document.addEventListener("pointerup", stopWordDrag);
+  document.addEventListener("pointercancel", cancelWordDrag);
+
   treeLayer.addEventListener("click", (event) => {
+    if (mode !== "build") {
+      return;
+    }
+
     const addButton = event.target.closest("[data-action='add-child']");
     const addRootButton = event.target.closest("[data-action='add-root']");
     const insertEdgeButton = event.target.closest("[data-action='insert-edge']");
@@ -87,6 +125,10 @@
   });
 
   treeLayer.addEventListener("dblclick", (event) => {
+    if (mode !== "build") {
+      return;
+    }
+
     const nodeElement = event.target.closest(".node");
     if (!nodeElement) {
       return;
@@ -99,6 +141,10 @@
   });
 
   connections.addEventListener("pointerover", (event) => {
+    if (mode !== "build") {
+      return;
+    }
+
     const edge = event.target.closest(".edge-hit");
     if (!edge) {
       return;
@@ -108,6 +154,10 @@
   });
 
   connections.addEventListener("pointerout", (event) => {
+    if (mode !== "build") {
+      return;
+    }
+
     if (!event.target.closest(".edge-hit")) {
       return;
     }
@@ -179,9 +229,43 @@
     if (event.key === "Escape" && !confirmOverlay.hidden) {
       closeDeleteConfirmation();
     }
+    if (event.key === "Escape" && wordDrag) {
+      cancelWordDrag(event);
+    }
   });
 
   window.addEventListener("resize", render);
+
+  function setMode(nextMode) {
+    if (!["build", "place"].includes(nextMode) || nextMode === mode) {
+      return;
+    }
+
+    mode = nextMode;
+    selectedEdge = null;
+    hideEdgePlus();
+    clearDropTarget();
+    cancelWordDrag();
+    render();
+  }
+
+  async function loadWordBank() {
+    try {
+      const response = await fetch("woorden.json", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+
+      const rawWords = await response.json();
+      const words = normalizeWords(rawWords);
+      if (words.length > 0) {
+        wordBank = words;
+        render();
+      }
+    } catch (error) {
+      wordBank = DEFAULT_WORDS;
+    }
+  }
 
   function startPanning(event) {
     if (event.button !== 0 || isInteractivePanTarget(event.target)) {
@@ -237,13 +321,202 @@
   }
 
   function isInteractivePanTarget(target) {
-    return Boolean(target.closest(".node, button, input, .edge-hit"));
+    return Boolean(target.closest(".node, button, input, .edge-hit, .word-card"));
+  }
+
+  function startWordDrag(event) {
+    const card = event.target.closest(".word-card");
+    if (!card || mode !== "place") {
+      return;
+    }
+
+    const word = findWord(card.dataset.wordId);
+    if (!word) {
+      return;
+    }
+
+    event.preventDefault();
+    card.setPointerCapture(event.pointerId);
+    wordDrag = {
+      pointerId: event.pointerId,
+      word,
+      ghost: createWordGhost(word),
+      targetCategoryId: null,
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+    document.body.classList.add("is-word-dragging");
+    updateWordDrag(event.clientX, event.clientY);
+    startWordAutoScroll();
+  }
+
+  function moveWordDrag(event) {
+    if (!wordDrag || event.pointerId !== wordDrag.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    updateWordDrag(event.clientX, event.clientY);
+  }
+
+  function stopWordDrag(event) {
+    if (!wordDrag || event.pointerId !== wordDrag.pointerId) {
+      return;
+    }
+
+    const targetCategoryId = wordDrag.targetCategoryId;
+    const wordId = wordDrag.word.id;
+    cleanupWordDrag();
+
+    if (targetCategoryId) {
+      placeWord(wordId, targetCategoryId);
+    }
+  }
+
+  function cancelWordDrag() {
+    if (!wordDrag) {
+      return;
+    }
+
+    cleanupWordDrag();
+  }
+
+  function cleanupWordDrag() {
+    stopWordAutoScroll();
+    clearDropTarget();
+    if (wordDrag && wordDrag.ghost) {
+      wordDrag.ghost.remove();
+    }
+    wordDrag = null;
+    document.body.classList.remove("is-word-dragging");
+  }
+
+  function createWordGhost(word) {
+    const ghost = document.createElement("div");
+    ghost.className = "word-drag-ghost";
+    ghost.textContent = word.label;
+    ghost.style.setProperty("--word-hue", getWordHue(word.variant));
+    document.body.appendChild(ghost);
+    return ghost;
+  }
+
+  function updateWordDrag(clientX, clientY) {
+    if (!wordDrag) {
+      return;
+    }
+
+    wordDrag.clientX = clientX;
+    wordDrag.clientY = clientY;
+    wordDrag.ghost.style.left = `${clientX}px`;
+    wordDrag.ghost.style.top = `${clientY}px`;
+    updateDropTarget(clientX, clientY);
+  }
+
+  function updateDropTarget(clientX, clientY) {
+    if (!wordDrag) {
+      return;
+    }
+
+    const categoryNode = document
+      .elementsFromPoint(clientX, clientY)
+      .find((element) => element.classList && element.classList.contains("category-node"));
+    const categoryId = categoryNode ? categoryNode.dataset.categoryId : null;
+
+    if (categoryId === wordDrag.targetCategoryId) {
+      return;
+    }
+
+    clearDropTarget();
+    wordDrag.targetCategoryId = categoryId;
+    if (categoryNode) {
+      categoryNode.classList.add("is-drop-target");
+    }
+  }
+
+  function clearDropTarget() {
+    treeLayer.querySelectorAll(".is-drop-target").forEach((element) => {
+      element.classList.remove("is-drop-target");
+    });
+    if (wordDrag) {
+      wordDrag.targetCategoryId = null;
+    }
+  }
+
+  function startWordAutoScroll() {
+    stopWordAutoScroll();
+    wordAutoScrollFrame = window.requestAnimationFrame(runWordAutoScroll);
+  }
+
+  function stopWordAutoScroll() {
+    if (wordAutoScrollFrame !== null) {
+      window.cancelAnimationFrame(wordAutoScrollFrame);
+      wordAutoScrollFrame = null;
+    }
+  }
+
+  function runWordAutoScroll() {
+    if (!wordDrag) {
+      wordAutoScrollFrame = null;
+      return;
+    }
+
+    const rect = workspace.getBoundingClientRect();
+    const threshold = 78;
+    const maxSpeed = 18;
+    let speedX = 0;
+    let speedY = 0;
+
+    if (wordDrag.clientX >= rect.left && wordDrag.clientX <= rect.right) {
+      if (wordDrag.clientX - rect.left < threshold) {
+        speedX = -edgeScrollSpeed(threshold - (wordDrag.clientX - rect.left), threshold, maxSpeed);
+      } else if (rect.right - wordDrag.clientX < threshold) {
+        speedX = edgeScrollSpeed(threshold - (rect.right - wordDrag.clientX), threshold, maxSpeed);
+      }
+    }
+
+    if (wordDrag.clientY >= rect.top && wordDrag.clientY <= rect.bottom) {
+      if (wordDrag.clientY - rect.top < threshold) {
+        speedY = -edgeScrollSpeed(threshold - (wordDrag.clientY - rect.top), threshold, maxSpeed);
+      } else if (rect.bottom - wordDrag.clientY < threshold) {
+        speedY = edgeScrollSpeed(threshold - (rect.bottom - wordDrag.clientY), threshold, maxSpeed);
+      }
+    }
+
+    if (speedX !== 0 || speedY !== 0) {
+      workspace.scrollLeft += speedX;
+      workspace.scrollTop += speedY;
+      updateDropTarget(wordDrag.clientX, wordDrag.clientY);
+    }
+
+    wordAutoScrollFrame = window.requestAnimationFrame(runWordAutoScroll);
+  }
+
+  function edgeScrollSpeed(distance, threshold, maxSpeed) {
+    const ratio = Math.min(1, Math.max(0, distance / threshold));
+    return Math.ceil(ratio * maxSpeed);
   }
 
   function render() {
-    layout = calculateLayout(state.roots);
+    const displayRoots = mode === "place" ? buildDisplayRoots() : state.roots;
+
+    layout = calculateLayout(displayRoots);
+    document.body.classList.toggle("place-mode", mode === "place");
     workspace.classList.toggle("has-nodes", state.roots.length > 0);
+    modeButtons.forEach((button) => {
+      const isActive = button.dataset.mode === mode;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+    modeDescription.textContent = mode === "build"
+      ? "Maak categorieen en ontdek hoe ze onder elkaar passen."
+      : "Sleep concrete woorden naar de categorie waar jij ze vindt passen.";
+    modeBadge.textContent = mode === "build" ? "Bouwmodus" : "Plaatsmodus";
+    emptyHint.textContent = mode === "build"
+      ? "Beweeg hier met de muis om je eerste hoofdcategorie te maken."
+      : "Maak eerst een categorie in Bouwmodus om woorden te kunnen plaatsen.";
+    wordTray.hidden = mode !== "place";
     renderStats();
+    renderWordTray();
     setCanvasSize(layout.width, layout.height);
     renderConnections();
     renderNodes();
@@ -263,6 +536,121 @@
     return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
   }
 
+  function renderWordTray() {
+    if (mode !== "place") {
+      wordList.innerHTML = "";
+      return;
+    }
+
+    const validPlacements = getValidPlacements();
+    const placedWordIds = new Set(validPlacements.map((placement) => placement.wordId));
+    const availableWords = wordBank.filter((word) => !placedWordIds.has(word.id));
+
+    wordProgress.textContent = `${placedWordIds.size} van ${wordBank.length} geplaatst`;
+    wordList.innerHTML = "";
+
+    if (availableWords.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "word-list-empty";
+      empty.textContent = "Alle woorden zijn geplaatst.";
+      wordList.appendChild(empty);
+      return;
+    }
+
+    for (const word of availableWords) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "word-card";
+      card.dataset.wordId = word.id;
+      card.style.setProperty("--word-hue", getWordHue(word.variant));
+      card.textContent = word.label;
+      card.title = `${word.label} plaatsen`;
+      wordList.appendChild(card);
+    }
+  }
+
+  function buildDisplayRoots() {
+    const categoryMap = new Map();
+    const wordMap = new Map(wordBank.map((word) => [word.id, word]));
+
+    function cloneCategory(node) {
+      const clone = {
+        id: node.id,
+        label: node.label,
+        type: "category",
+        children: node.children.map(cloneCategory)
+      };
+      categoryMap.set(clone.id, clone);
+      return clone;
+    }
+
+    const roots = state.roots.map(cloneCategory);
+
+    for (const placement of getValidPlacements()) {
+      const word = wordMap.get(placement.wordId);
+      const category = categoryMap.get(placement.categoryId);
+      if (!word || !category) {
+        continue;
+      }
+
+      category.children.push({
+        id: `word-${word.id}`,
+        label: word.label,
+        type: "word",
+        wordId: word.id,
+        variant: word.variant,
+        children: []
+      });
+    }
+
+    return roots;
+  }
+
+  function placeWord(wordId, categoryId) {
+    if (!findNode(categoryId) || !findWord(wordId)) {
+      return;
+    }
+
+    state.placements = getValidPlacements().filter((placement) => placement.wordId !== wordId);
+    state.placements.push({ wordId, categoryId });
+    saveState();
+    render();
+  }
+
+  function getValidPlacements() {
+    const categoryIds = new Set();
+    visitNodes((node) => categoryIds.add(node.id));
+    const seenWordIds = new Set();
+    const placements = [];
+
+    for (const placement of state.placements || []) {
+      if (
+        typeof placement.wordId !== "string" ||
+        typeof placement.categoryId !== "string" ||
+        !categoryIds.has(placement.categoryId) ||
+        seenWordIds.has(placement.wordId)
+      ) {
+        continue;
+      }
+
+      seenWordIds.add(placement.wordId);
+      placements.push({
+        wordId: placement.wordId,
+        categoryId: placement.categoryId
+      });
+    }
+
+    return placements;
+  }
+
+  function findWord(wordId) {
+    return wordBank.find((word) => word.id === wordId);
+  }
+
+  function getWordHue(variant) {
+    return WORD_HUES[Math.abs(Number(variant) || 0) % WORD_HUES.length];
+  }
+
   function renderNodes() {
     treeLayer.innerHTML = "";
 
@@ -271,16 +659,23 @@
       const rootHue = ROOT_HUES[nodeLayout.rootIndex % ROOT_HUES.length];
       const depthLightness = Math.min(68, 45 + nodeLayout.depth * 6);
       const element = document.createElement("div");
+      const isWord = node.type === "word";
 
-      element.className = "node";
+      element.className = isWord ? "node word-node" : "node category-node";
       element.dataset.id = node.id;
+      if (!isWord) {
+        element.dataset.categoryId = node.id;
+      }
       element.style.left = `${nodeLayout.x}px`;
       element.style.top = `${nodeLayout.y}px`;
       element.style.setProperty("--hue", rootHue);
       element.style.setProperty("--light-1", `${depthLightness + 8}%`);
       element.style.setProperty("--light-2", `${depthLightness}%`);
+      if (isWord) {
+        element.style.setProperty("--word-hue", getWordHue(node.variant));
+      }
 
-      if (editing && editing.id === node.id) {
+      if (!isWord && mode === "build" && editing && editing.id === node.id) {
         element.classList.add("is-editing");
         element.appendChild(createInput(node));
       } else {
@@ -289,32 +684,36 @@
         label.textContent = node.label;
         element.appendChild(label);
 
-        const addButton = document.createElement("button");
-        addButton.type = "button";
-        addButton.className = "node-action add";
-        addButton.dataset.action = "add-child";
-        addButton.dataset.id = node.id;
-        addButton.title = "Subcategorie toevoegen";
-        addButton.setAttribute("aria-label", `Subcategorie toevoegen onder ${node.label}`);
-        addButton.textContent = "+";
-        element.appendChild(addButton);
+        if (!isWord && mode === "build") {
+          const addButton = document.createElement("button");
+          addButton.type = "button";
+          addButton.className = "node-action add";
+          addButton.dataset.action = "add-child";
+          addButton.dataset.id = node.id;
+          addButton.title = "Subcategorie toevoegen";
+          addButton.setAttribute("aria-label", `Subcategorie toevoegen onder ${node.label}`);
+          addButton.textContent = "+";
+          element.appendChild(addButton);
 
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "node-action delete";
-        deleteButton.dataset.action = "delete";
-        deleteButton.dataset.id = node.id;
-        deleteButton.title = "Verwijderen";
-        deleteButton.setAttribute("aria-label", `${node.label} verwijderen`);
-        deleteButton.textContent = "×";
-        element.appendChild(deleteButton);
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "node-action delete";
+          deleteButton.dataset.action = "delete";
+          deleteButton.dataset.id = node.id;
+          deleteButton.title = "Verwijderen";
+          deleteButton.setAttribute("aria-label", `${node.label} verwijderen`);
+          deleteButton.textContent = "×";
+          element.appendChild(deleteButton);
+        }
       }
 
       treeLayer.appendChild(element);
     }
 
-    renderRootButton();
-    renderEdgePlus();
+    if (mode === "build") {
+      renderRootButton();
+      renderEdgePlus();
+    }
   }
 
   function renderEdgePlus() {
@@ -389,21 +788,25 @@
     connections.innerHTML = "";
 
     for (const edge of layout.edges) {
-      const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
       const visiblePath = document.createElementNS("http://www.w3.org/2000/svg", "path");
       const isSelected = selectedEdge &&
         selectedEdge.parentId === edge.parent.id &&
         selectedEdge.childId === edge.child.id;
 
-      hitPath.setAttribute("d", edge.path);
-      hitPath.setAttribute("class", "edge-hit");
-      hitPath.dataset.parentId = edge.parent.id;
-      hitPath.dataset.childId = edge.child.id;
-
       visiblePath.setAttribute("d", edge.path);
-      visiblePath.setAttribute("class", isSelected ? "edge selected" : "edge");
+      visiblePath.setAttribute(
+        "class",
+        edge.isWord ? "edge word-edge" : isSelected ? "edge selected" : "edge"
+      );
 
-      connections.appendChild(hitPath);
+      if (mode === "build" && !edge.isWord) {
+        const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        hitPath.setAttribute("d", edge.path);
+        hitPath.setAttribute("class", "edge-hit");
+        hitPath.dataset.parentId = edge.parent.id;
+        hitPath.dataset.childId = edge.child.id;
+        connections.appendChild(hitPath);
+      }
       connections.appendChild(visiblePath);
     }
   }
@@ -642,10 +1045,11 @@
   }
 
   function createEdge(parentLayout, childLayout) {
+    const childHeight = childLayout.node.type === "word" ? 48 : NODE_HEIGHT;
     const startX = parentLayout.x;
     const startY = parentLayout.y + NODE_HEIGHT / 2 - 2;
     const endX = childLayout.x;
-    const endY = childLayout.y - NODE_HEIGHT / 2 + 2;
+    const endY = childLayout.y - childHeight / 2 + 2;
     const midY = (startY + endY) / 2;
     const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
 
@@ -654,7 +1058,8 @@
       child: childLayout.node,
       path,
       midX: (startX + endX) / 2,
-      midY
+      midY,
+      isWord: childLayout.node.type === "word"
     };
   }
 
@@ -689,9 +1094,16 @@
   }
 
   function removeNode(nodeId) {
+    const nodeToRemove = findNode(nodeId);
+    const removedCategoryIds = new Set();
+    if (nodeToRemove) {
+      collectNodeIds(nodeToRemove, removedCategoryIds);
+    }
+
     const rootIndex = state.roots.findIndex((node) => node.id === nodeId);
     if (rootIndex !== -1) {
       state.roots.splice(rootIndex, 1);
+      removePlacementsForCategories(removedCategoryIds);
       return true;
     }
 
@@ -704,11 +1116,27 @@
       const childIndex = node.children.findIndex((child) => child.id === nodeId);
       if (childIndex !== -1) {
         node.children.splice(childIndex, 1);
+        removePlacementsForCategories(removedCategoryIds);
         removed = true;
       }
     });
 
     return removed;
+  }
+
+  function collectNodeIds(node, ids) {
+    ids.add(node.id);
+    node.children.forEach((child) => collectNodeIds(child, ids));
+  }
+
+  function removePlacementsForCategories(categoryIds) {
+    if (!categoryIds.size || !Array.isArray(state.placements)) {
+      return;
+    }
+
+    state.placements = state.placements.filter((placement) => {
+      return !categoryIds.has(placement.categoryId);
+    });
   }
 
   function visitNodes(callback) {
@@ -759,9 +1187,65 @@
       };
     }
 
+    const roots = Array.isArray(rawState.roots) ? rawState.roots.map(normalizeNode) : [];
+    const categoryIds = new Set();
+
+    function collectCategoryIds(node) {
+      categoryIds.add(node.id);
+      node.children.forEach(collectCategoryIds);
+    }
+
+    roots.forEach(collectCategoryIds);
+
+    const placements = [];
+    const placedWordIds = new Set();
+    if (Array.isArray(rawState.placements)) {
+      for (const placement of rawState.placements) {
+        if (
+          typeof placement.wordId !== "string" ||
+          typeof placement.categoryId !== "string" ||
+          !categoryIds.has(placement.categoryId) ||
+          placedWordIds.has(placement.wordId)
+        ) {
+          continue;
+        }
+
+        placedWordIds.add(placement.wordId);
+        placements.push({
+          wordId: placement.wordId,
+          categoryId: placement.categoryId
+        });
+      }
+    }
+
     return {
       version: 1,
-      roots: Array.isArray(rawState.roots) ? rawState.roots.map(normalizeNode) : []
+      roots,
+      placements
     };
+  }
+
+  function normalizeWords(rawWords) {
+    const seenIds = new Set();
+    if (!Array.isArray(rawWords)) {
+      return [];
+    }
+
+    return rawWords.reduce((words, rawWord, index) => {
+      const id = typeof rawWord.id === "string" ? rawWord.id.trim() : "";
+      const label = cleanLabel(typeof rawWord.label === "string" ? rawWord.label : "");
+
+      if (!id || !label || seenIds.has(id)) {
+        return words;
+      }
+
+      seenIds.add(id);
+      words.push({
+        id,
+        label,
+        variant: Number.isInteger(rawWord.variant) ? rawWord.variant : index
+      });
+      return words;
+    }, []);
   }
 })();

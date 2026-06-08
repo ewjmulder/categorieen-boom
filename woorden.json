@@ -1,0 +1,12 @@
+[
+  { "id": "olifant", "label": "Olifant", "variant": 0 },
+  { "id": "dolfijn", "label": "Dolfijn", "variant": 1 },
+  { "id": "stoel", "label": "Stoel", "variant": 2 },
+  { "id": "fiets", "label": "Fiets", "variant": 3 },
+  { "id": "appel", "label": "Appel", "variant": 4 },
+  { "id": "brood", "label": "Brood", "variant": 0 },
+  { "id": "tulp", "label": "Tulp", "variant": 1 },
+  { "id": "kasteel", "label": "Kasteel", "variant": 2 },
+  { "id": "lepel", "label": "Lepel", "variant": 3 },
+  { "id": "trein", "label": "Trein", "variant": 4 }
+]
