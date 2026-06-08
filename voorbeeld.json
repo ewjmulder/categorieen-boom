@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "roots": [
+    {
+      "id": "voorbeeld-dieren",
+      "label": "Dieren",
+      "children": [
+        {
+          "id": "voorbeeld-landdieren",
+          "label": "Landdieren",
+          "children": [
+            {
+              "id": "voorbeeld-boerderij",
+              "label": "Boerderij",
+              "children": [
+                {
+                  "id": "voorbeeld-koe",
+                  "label": "Koe",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "voorbeeld-bos",
+              "label": "Bosdieren",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "voorbeeld-waterdieren",
+          "label": "Waterdieren",
+          "children": [
+            {
+              "id": "voorbeeld-vis",
+              "label": "Vis",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "voorbeeld-dingen",
+      "label": "Dingen",
+      "children": [
+        {
+          "id": "voorbeeld-meubels",
+          "label": "Meubels",
+          "children": [
+            {
+              "id": "voorbeeld-stoel",
+              "label": "Stoel",
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "voorbeeld-speelgoed",
+          "label": "Speelgoed",
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "voorbeeld-eten",
+      "label": "Eten",
+      "children": [
+        {
+          "id": "voorbeeld-fruit",
+          "label": "Fruit",
+          "children": []
+        }
+      ]
+    }
+  ]
+}

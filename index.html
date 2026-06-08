@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Arends categorie&euml;nboom</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Categorie&euml;nboom</h1>
+        <p>Maak woorden, zet ze in groepjes en ontdek hoe categorie&euml;n onder elkaar passen.</p>
+      </div>
+      <section class="scoreboard" aria-label="Statistieken">
+        <div
+          class="score"
+          tabindex="0"
+          data-tooltip="Het aantal categorie&euml;n in de hele boom, inclusief alle hoofd- en subcategorie&euml;n."
+        >
+          <span id="total-count" class="score-value">0</span>
+          <span class="score-label">Totaal</span>
+        </div>
+        <div
+          class="score"
+          tabindex="0"
+          data-tooltip="Het aantal categorie&euml;n in de grootste hoofdcategorie, inclusief de hoofdcategorie zelf."
+        >
+          <span id="largest-count" class="score-value">0</span>
+          <span class="score-label">Grootste</span>
+        </div>
+      </section>
+      <div class="toolbar" aria-label="Acties">
+        <button id="load-example" type="button">Voorbeeld laden</button>
+        <button id="export-json" type="button">JSON exporteren</button>
+      </div>
+    </header>
+
+    <main class="workspace-shell">
+      <section
+        id="workspace"
+        class="workspace"
+        aria-label="Interactieve categorieenboom"
+      >
+        <svg id="connections" class="connections" aria-hidden="true"></svg>
+        <div id="tree" class="tree-layer"></div>
+        <div id="empty-hint" class="empty-hint">
+          Beweeg hier met de muis om je eerste hoofdcategorie te maken.
+        </div>
+      </section>
+    </main>
+
+    <aside class="help-panel">
+      <strong>Zo werkt het:</strong>
+      <span>gebruik het plusje rechtsboven voor een hoofdcategorie</span>
+      <span>sleep de lege ruimte om door de boom te bewegen</span>
+      <span>beweeg over een bolletje voor toevoegen of verwijderen</span>
+      <span>dubbelklik op een woord om het te veranderen</span>
+      <span>beweeg over een lijn om er iets tussen te zetten</span>
+    </aside>
+
+    <div id="confirm-overlay" class="confirm-overlay" hidden>
+      <section
+        class="confirm-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-message"
+      >
+        <div class="confirm-icon" aria-hidden="true">?</div>
+        <h2 id="confirm-title">Categorie verwijderen?</h2>
+        <p id="confirm-message"></p>
+        <div class="confirm-actions">
+          <button id="cancel-delete" class="button-secondary" type="button">Niet verwijderen</button>
+          <button id="confirm-delete" class="button-danger" type="button">Verwijderen</button>
+        </div>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
