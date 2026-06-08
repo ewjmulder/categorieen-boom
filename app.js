@@ -2,13 +2,14 @@
   "use strict";
 
   const STORAGE_KEY = "arend-categorieenboom-v1";
-  const NODE_WIDTH = 154;
-  const NODE_HEIGHT = 58;
-  const H_GAP = 78;
-  const V_GAP = 120;
-  const PADDING_X = 110;
-  const PADDING_TOP = 88;
-  const PADDING_BOTTOM = 110;
+  const NODE_WIDTH = 124;
+  const NODE_HEIGHT = 48;
+  const WORD_NODE_HEIGHT = 42;
+  const H_GAP = 28;
+  const V_GAP = 84;
+  const PADDING_X = 68;
+  const PADDING_TOP = 60;
+  const PADDING_BOTTOM = 68;
   const ROOT_HUES = [212, 142, 275, 24, 336, 184, 45, 250, 7, 103];
   const WORD_HUES = [28, 190, 328, 92, 252];
   const DEFAULT_WORDS = [
@@ -497,10 +498,10 @@
   }
 
   function render() {
+    document.body.classList.toggle("place-mode", mode === "place");
     const displayRoots = mode === "place" ? buildDisplayRoots() : state.roots;
 
     layout = calculateLayout(displayRoots);
-    document.body.classList.toggle("place-mode", mode === "place");
     workspace.classList.toggle("has-nodes", state.roots.length > 0);
     modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === mode;
@@ -1032,10 +1033,12 @@
     }
 
     const nextRootX = PADDING_X + nextLeaf * (NODE_WIDTH + H_GAP);
-    const width = Math.max(
-      workspace.clientWidth,
-      nextRootX + NODE_WIDTH / 2 + PADDING_X
-    );
+    const contentWidth = mode === "build"
+      ? nextRootX + NODE_WIDTH / 2 + PADDING_X
+      : nextLeaf > 0
+        ? nextRootX - NODE_WIDTH / 2 - H_GAP + PADDING_X
+        : workspace.clientWidth;
+    const width = Math.max(workspace.clientWidth, contentWidth);
     const height = Math.max(
       workspace.clientHeight,
       PADDING_TOP + PADDING_BOTTOM + (maxDepth + 1) * V_GAP
@@ -1045,7 +1048,7 @@
   }
 
   function createEdge(parentLayout, childLayout) {
-    const childHeight = childLayout.node.type === "word" ? 48 : NODE_HEIGHT;
+    const childHeight = childLayout.node.type === "word" ? WORD_NODE_HEIGHT : NODE_HEIGHT;
     const startX = parentLayout.x;
     const startY = parentLayout.y + NODE_HEIGHT / 2 - 2;
     const endX = childLayout.x;
