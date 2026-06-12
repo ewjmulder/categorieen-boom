@@ -6,7 +6,6 @@
   const CLOUD_STATE_FORMAT = "arend-categorieenboom";
   const STATE_VERSION = 2;
   const FIREBASE_PROJECT_ID = "categorieen-boom";
-  const FIREBASE_API_KEY = "AIzaSyBUFGvxW7492bWWu9bxDj1T1z3kervAlq8";
   const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
   const MAX_CLOUD_STATE_SIZE = 850000;
   const NODE_WIDTH = 124;
@@ -1919,7 +1918,6 @@
 
     do {
       const url = new URL(`${FIRESTORE_BASE_URL}/trees`);
-      url.searchParams.set("key", FIREBASE_API_KEY);
       url.searchParams.set("pageSize", "100");
       ["name", "maker", "createdAt", "updatedAt", "revision", "categoryCount", "placedWordCount"].forEach((field) => {
         url.searchParams.append("mask.fieldPaths", field);
@@ -1940,14 +1938,12 @@
 
   async function getCloudTreeDocument(treeId, allowMissing = false) {
     const url = new URL(`${FIRESTORE_BASE_URL}/trees/${encodeURIComponent(treeId)}`);
-    url.searchParams.set("key", FIREBASE_API_KEY);
     const document = await firebaseFetch(url, {}, allowMissing);
     return document ? decodeCloudTreeDocument(document, true) : null;
   }
 
   async function writeCloudTree(cloud, serializedState) {
     const url = new URL(`${FIRESTORE_BASE_URL}/trees/${encodeURIComponent(cloud.treeId)}`);
-    url.searchParams.set("key", FIREBASE_API_KEY);
     await firebaseFetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
