@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "roots": [
     {
       "id": "voorbeeld-dieren",
@@ -11,17 +11,20 @@
           "children": [
             {
               "id": "voorbeeld-boerderij",
-              "label": "Boerderijdieren"
+              "label": "Boerderijdieren",
+              "children": []
             },
             {
               "id": "voorbeeld-bos",
-              "label": "Bosdieren"
+              "label": "Bosdieren",
+              "children": []
             }
           ]
         },
         {
           "id": "voorbeeld-waterdieren",
-          "label": "Waterdieren"
+          "label": "Waterdieren",
+          "children": []
         }
       ]
     },
@@ -31,11 +34,13 @@
       "children": [
         {
           "id": "voorbeeld-meubels",
-          "label": "Meubels"
+          "label": "Meubels",
+          "children": []
         },
         {
           "id": "voorbeeld-speelgoed",
-          "label": "Speelgoed"
+          "label": "Speelgoed",
+          "children": []
         }
       ]
     },
@@ -45,9 +50,20 @@
       "children": [
         {
           "id": "voorbeeld-fruit",
-          "label": "Fruit"
+          "label": "Fruit",
+          "children": []
         }
       ]
     }
-  ]
+  ],
+  "placements": [],
+  "customWords": [],
+  "hiddenWords": [],
+  "baseWords": [],
+  "cloud": null,
+  "view": {
+    "mode": "build",
+    "scrollLeft": 0,
+    "scrollTop": 0
+  }
 }

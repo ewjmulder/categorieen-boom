@@ -41,16 +41,6 @@ no-store`; het script controleert die live headers na iedere deployment.
 ## Gegevens
 
 De volledige sessie wordt automatisch opgeslagen in `localStorage` van de browser.
-Met **JSON exporteren** download je een transporteerbaar bestand met:
-
-- de volledige categorieboom;
-- alle beschikbare en zelf toegevoegde woorden;
-- verwijderde woorden en alle plaatsingen;
-- de actieve modus en scrollpositie.
-
-Met **JSON importeren** laad je zo'n bestand op een ander apparaat of in een
-andere browser weer in. Eerdere exports met formaatversie 1 blijven ondersteund.
-
 Met **Bomen opslaan/laden** kan dezelfde volledige state publiek in Cloud
 Firestore worden opgeslagen. Iedere boom krijgt een unieke ID, waardoor
 verschillende bomen dezelfde zichtbare naam mogen hebben. Na het laden blijft de
