@@ -46,7 +46,16 @@ De gegevens blijven voorlopig lokaal in de browser opgeslagen.
 
 ## Gegevens
 
-De boom wordt automatisch opgeslagen in `localStorage` van de browser. Met **JSON exporteren** kun je een kopie downloaden.
+De volledige sessie wordt automatisch opgeslagen in `localStorage` van de browser.
+Met **JSON exporteren** download je een transporteerbaar bestand met:
+
+- de volledige categorieboom;
+- alle beschikbare en zelf toegevoegde woorden;
+- verwijderde woorden en alle plaatsingen;
+- de actieve modus en scrollpositie.
+
+Met **JSON importeren** laad je zo'n bestand op een ander apparaat of in een
+andere browser weer in. Eerdere exports met formaatversie 1 blijven ondersteund.
 
 `voorbeeld.json` bevat de voorbeeldboom en kan handmatig worden aangepast.
 

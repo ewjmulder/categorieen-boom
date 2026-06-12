@@ -2,6 +2,9 @@
   "use strict";
 
   const STORAGE_KEY = "arend-categorieenboom-v1";
+  const EXPORT_FORMAT = "arend-categorieenboom";
+  const STATE_VERSION = 2;
+  const MAX_IMPORT_SIZE = 5 * 1024 * 1024;
   const NODE_WIDTH = 124;
   const NODE_HEIGHT = 48;
   const WORD_NODE_HEIGHT = 42;
@@ -37,6 +40,8 @@
   const wordProgress = document.querySelector("#word-progress");
   const resetTreeButton = document.querySelector("#reset-tree");
   const loadExampleButton = document.querySelector("#load-example");
+  const importButton = document.querySelector("#import-json");
+  const importFileInput = document.querySelector("#import-json-file");
   const exportButton = document.querySelector("#export-json");
   const totalCount = document.querySelector("#total-count");
   const largestCount = document.querySelector("#largest-count");
@@ -53,8 +58,9 @@
   let panState = null;
   let suppressClickAfterPan = false;
   let edgeHoverTimer = null;
-  let mode = "build";
-  let baseWordBank = DEFAULT_WORDS;
+  let viewSaveTimer = null;
+  let mode = state.view.mode;
+  let baseWordBank = state.baseWords.length > 0 ? state.baseWords : DEFAULT_WORDS;
   let wordBank = mergeWordBank();
   let isAddingWord = false;
   let wordDrag = null;
@@ -66,7 +72,9 @@
     height: 520
   };
 
+  persistState();
   render();
+  restoreViewState();
   loadWordBank();
 
   modeButtons.forEach((button) => {
@@ -77,6 +85,7 @@
   workspace.addEventListener("pointermove", movePanning);
   workspace.addEventListener("pointerup", stopPanning);
   workspace.addEventListener("pointercancel", stopPanning);
+  workspace.addEventListener("scroll", scheduleViewSave, { passive: true });
   workspace.addEventListener("click", (event) => {
     if (!suppressClickAfterPan) {
       return;
@@ -223,13 +232,43 @@
       selectedEdge = null;
       saveState();
       render();
+      restoreViewState();
     } catch (error) {
       window.alert("Het voorbeeld kon niet worden geladen. Start de app via een lokale webserver of publiceer de bestanden online.");
     }
   });
 
+  importButton.addEventListener("click", () => {
+    importFileInput.value = "";
+    importFileInput.click();
+  });
+
+  importFileInput.addEventListener("change", async () => {
+    const [file] = importFileInput.files;
+    if (!file) {
+      return;
+    }
+
+    try {
+      if (file.size > MAX_IMPORT_SIZE) {
+        throw new Error("Het bestand is groter dan 5 MB.");
+      }
+
+      const importedState = parseImportedState(JSON.parse(await file.text()));
+      if (hasSavedWork() && !window.confirm("Dit vervangt je huidige boom en alle woorden en plaatsingen. Weet je het zeker?")) {
+        return;
+      }
+
+      applyImportedState(importedState);
+      window.alert("De volledige status is geïmporteerd.");
+    } catch (error) {
+      window.alert(`Importeren is niet gelukt. ${error.message || "Controleer of dit een geldig JSON-bestand is."}`);
+    }
+  });
+
   exportButton.addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const exportState = createPortableState();
+    const blob = new Blob([JSON.stringify(exportState, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     const date = new Date().toISOString().slice(0, 10);
@@ -292,10 +331,19 @@
     hideEdgePlus();
     clearDropTarget();
     cancelWordDrag();
+    saveState();
     render();
   }
 
   async function loadWordBank() {
+    if (state.baseWords.length > 0) {
+      baseWordBank = state.baseWords;
+      wordBank = mergeWordBank();
+      render();
+      restoreViewState();
+      return;
+    }
+
     try {
       const response = await fetch("woorden.json", { cache: "no-store" });
       if (!response.ok) {
@@ -1144,7 +1192,7 @@
 
   function resetTree() {
     cancelWordDrag();
-    state = { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
+    state = createEmptyState();
     wordBank = mergeWordBank();
     isAddingWord = false;
     editing = null;
@@ -1387,26 +1435,33 @@
   }
 
   function saveState() {
+    syncViewState();
+    persistState();
+  }
+
+  function persistState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
   function loadState() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) {
-      return { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
+      return createEmptyState();
     }
 
     try {
       return normalizeState(JSON.parse(saved));
     } catch (error) {
-      return { version: 1, roots: [], placements: [], customWords: [], hiddenWords: [] };
+      return createEmptyState();
     }
   }
 
   function normalizeState(rawState) {
+    rawState = isRecord(rawState) ? rawState : {};
     const seenIds = new Set();
 
     function normalizeNode(rawNode) {
+      rawNode = isRecord(rawNode) ? rawNode : {};
       const fallback = createNode("");
       const id = typeof rawNode.id === "string" && rawNode.id && !seenIds.has(rawNode.id)
         ? rawNode.id
@@ -1459,14 +1514,156 @@
     const hiddenWords = Array.isArray(rawState.hiddenWords)
       ? [...new Set(rawState.hiddenWords.filter((wordId) => typeof wordId === "string"))]
       : [];
+    const baseWords = normalizeWords(rawState.baseWords);
+    const rawView = isRecord(rawState.view) ? rawState.view : {};
+    const view = {
+      mode: rawView.mode === "place" ? "place" : "build",
+      scrollLeft: normalizeScrollPosition(rawView.scrollLeft),
+      scrollTop: normalizeScrollPosition(rawView.scrollTop)
+    };
 
     return {
-      version: 1,
+      version: STATE_VERSION,
       roots,
       placements,
       customWords,
-      hiddenWords
+      hiddenWords,
+      baseWords,
+      view
     };
+  }
+
+  function createEmptyState() {
+    return {
+      version: STATE_VERSION,
+      roots: [],
+      placements: [],
+      customWords: [],
+      hiddenWords: [],
+      baseWords: [],
+      view: {
+        mode: "build",
+        scrollLeft: 0,
+        scrollTop: 0
+      }
+    };
+  }
+
+  function createPortableState() {
+    syncViewState();
+    return {
+      format: EXPORT_FORMAT,
+      version: STATE_VERSION,
+      exportedAt: new Date().toISOString(),
+      roots: state.roots,
+      placements: state.placements,
+      customWords: state.customWords,
+      hiddenWords: state.hiddenWords,
+      baseWords: baseWordBank,
+      view: state.view
+    };
+  }
+
+  function parseImportedState(rawState) {
+    if (!isRecord(rawState)) {
+      throw new Error("De inhoud moet een JSON-object zijn.");
+    }
+
+    if (rawState.format !== undefined && rawState.format !== EXPORT_FORMAT) {
+      throw new Error("Dit bestand hoort niet bij de categorieënboom.");
+    }
+
+    if (![1, STATE_VERSION].includes(rawState.version)) {
+      throw new Error(`Versie ${String(rawState.version)} wordt niet ondersteund.`);
+    }
+
+    if (!Array.isArray(rawState.roots)) {
+      throw new Error("De categorieboom ontbreekt.");
+    }
+
+    validateOptionalArray(rawState, "placements");
+    validateOptionalArray(rawState, "customWords");
+    validateOptionalArray(rawState, "hiddenWords");
+    validateOptionalArray(rawState, "baseWords");
+    rawState.roots.forEach(validateImportedNode);
+
+    if (rawState.view !== undefined && !isRecord(rawState.view)) {
+      throw new Error("De weergavestatus is ongeldig.");
+    }
+
+    return normalizeState(rawState);
+  }
+
+  function validateOptionalArray(value, property) {
+    if (value[property] !== undefined && !Array.isArray(value[property])) {
+      throw new Error(`Het veld "${property}" is ongeldig.`);
+    }
+  }
+
+  function validateImportedNode(node) {
+    if (!isRecord(node)) {
+      throw new Error("Een categorie in de boom is ongeldig.");
+    }
+
+    if (node.children !== undefined && !Array.isArray(node.children)) {
+      throw new Error("De subcategorieën van een categorie zijn ongeldig.");
+    }
+
+    if (Array.isArray(node.children)) {
+      node.children.forEach(validateImportedNode);
+    }
+  }
+
+  function applyImportedState(importedState) {
+    cancelWordDrag();
+    state = importedState;
+    if (state.baseWords.length > 0) {
+      baseWordBank = state.baseWords;
+    }
+    wordBank = mergeWordBank();
+    isAddingWord = false;
+    editing = null;
+    selectedEdge = null;
+    mode = state.view.mode;
+    persistState();
+    render();
+    restoreViewState();
+  }
+
+  function hasSavedWork() {
+    return state.roots.length > 0 ||
+      state.placements.length > 0 ||
+      state.customWords.length > 0 ||
+      state.hiddenWords.length > 0;
+  }
+
+  function scheduleViewSave() {
+    window.clearTimeout(viewSaveTimer);
+    viewSaveTimer = window.setTimeout(saveState, 150);
+  }
+
+  function syncViewState() {
+    state.view = {
+      mode,
+      scrollLeft: workspace.scrollLeft,
+      scrollTop: workspace.scrollTop
+    };
+  }
+
+  function restoreViewState() {
+    const savedView = { ...state.view };
+    window.requestAnimationFrame(() => {
+      workspace.scrollLeft = savedView.scrollLeft;
+      workspace.scrollTop = savedView.scrollTop;
+    });
+  }
+
+  function normalizeScrollPosition(value) {
+    return Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+  }
+
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   }
 
   function normalizeWords(rawWords) {
