@@ -2,9 +2,14 @@
   "use strict";
 
   const STORAGE_KEY = "arend-categorieenboom-v1";
+  const MAKER_STORAGE_KEY = "arend-categorieenboom-maker";
   const EXPORT_FORMAT = "arend-categorieenboom";
   const STATE_VERSION = 2;
   const MAX_IMPORT_SIZE = 5 * 1024 * 1024;
+  const FIREBASE_PROJECT_ID = "categorieen-boom";
+  const FIREBASE_API_KEY = "AIzaSyBUFGvxW7492bWWu9bxDj1T1z3kervAlq8";
+  const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  const MAX_CLOUD_STATE_SIZE = 850000;
   const NODE_WIDTH = 124;
   const NODE_HEIGHT = 48;
   const WORD_NODE_HEIGHT = 42;
@@ -43,6 +48,20 @@
   const importButton = document.querySelector("#import-json");
   const importFileInput = document.querySelector("#import-json-file");
   const exportButton = document.querySelector("#export-json");
+  const cloudTreesButton = document.querySelector("#cloud-trees");
+  const cloudDialog = document.querySelector("#cloud-dialog");
+  const closeCloudDialogButton = document.querySelector("#close-cloud-dialog");
+  const saveCloudForm = document.querySelector("#save-cloud-form");
+  const cloudTreeNameInput = document.querySelector("#cloud-tree-name");
+  const cloudTreeMakerInput = document.querySelector("#cloud-tree-maker");
+  const cloudNameLabel = document.querySelector("#cloud-name-label");
+  const cloudMakerLabel = document.querySelector("#cloud-maker-label");
+  const saveCloudTreeButton = document.querySelector("#save-cloud-tree");
+  const refreshCloudTreesButton = document.querySelector("#refresh-cloud-trees");
+  const cloudCurrentTitle = document.querySelector("#cloud-current-title");
+  const cloudCurrentDescription = document.querySelector("#cloud-current-description");
+  const cloudStatus = document.querySelector("#cloud-status");
+  const cloudTreeList = document.querySelector("#cloud-tree-list");
   const totalCount = document.querySelector("#total-count");
   const largestCount = document.querySelector("#largest-count");
   const confirmOverlay = document.querySelector("#confirm-overlay");
@@ -210,14 +229,21 @@
     });
   });
 
-  loadExampleButton.addEventListener("click", async () => {
-    if (state.roots.length > 0) {
-      const confirmed = window.confirm("Dit vervangt je huidige boom. Weet je het zeker?");
-      if (!confirmed) {
-        return;
-      }
+  loadExampleButton.addEventListener("click", () => {
+    if (hasSavedWork()) {
+      openConfirmation({
+        type: "load-example",
+        title: "Voorbeeldboom laden?",
+        message: "Dit vervangt je huidige boom, woorden en plaatsingen. Niet-online-opgeslagen wijzigingen gaan verloren.",
+        confirmLabel: "Voorbeeld laden"
+      });
+      return;
     }
 
+    loadExample();
+  });
+
+  async function loadExample() {
     try {
       const response = await fetch("voorbeeld.json", { cache: "no-store" });
       if (!response.ok) {
@@ -236,7 +262,7 @@
     } catch (error) {
       window.alert("Het voorbeeld kon niet worden geladen. Start de app via een lokale webserver of publiceer de bestanden online.");
     }
-  });
+  }
 
   importButton.addEventListener("click", () => {
     importFileInput.value = "";
@@ -281,9 +307,38 @@
     URL.revokeObjectURL(url);
   });
 
+  cloudTreesButton.addEventListener("click", openCloudDialog);
+  closeCloudDialogButton.addEventListener("click", closeCloudDialog);
+  refreshCloudTreesButton.addEventListener("click", loadCloudTreeList);
+
+  saveCloudForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveTreeToCloud();
+  });
+
+  cloudTreeList.addEventListener("click", async (event) => {
+    const loadButton = event.target.closest("[data-cloud-tree-id]");
+    if (!loadButton) {
+      return;
+    }
+
+    await loadTreeFromCloud(loadButton.dataset.cloudTreeId);
+  });
+
+  cloudDialog.addEventListener("click", (event) => {
+    if (event.target === cloudDialog) {
+      closeCloudDialog();
+    }
+  });
+
+  cloudDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeCloudDialog();
+  });
+
   cancelDeleteButton.addEventListener("click", closeConfirmation);
 
-  confirmDeleteButton.addEventListener("click", () => {
+  confirmDeleteButton.addEventListener("click", async () => {
     if (!pendingConfirmation) {
       return;
     }
@@ -291,6 +346,12 @@
     if (pendingConfirmation.type === "reset") {
       resetTree();
       closeConfirmation();
+      return;
+    }
+
+    if (pendingConfirmation.type === "load-example") {
+      closeConfirmation();
+      await loadExample();
       return;
     }
 
@@ -649,6 +710,7 @@
     renderConnections();
     renderNodes();
     focusEditingInput();
+    updateCloudCurrentCard();
   }
 
   function renderStats() {
@@ -1434,6 +1496,14 @@
     return value.trim().replace(/\s+/g, " ").slice(0, 28);
   }
 
+  function cleanTreeName(value) {
+    return value.trim().replace(/\s+/g, " ").slice(0, 80);
+  }
+
+  function cleanMakerName(value) {
+    return value.trim().replace(/\s+/g, " ").slice(0, 60);
+  }
+
   function saveState() {
     syncViewState();
     persistState();
@@ -1521,6 +1591,7 @@
       scrollLeft: normalizeScrollPosition(rawView.scrollLeft),
       scrollTop: normalizeScrollPosition(rawView.scrollTop)
     };
+    const cloud = normalizeCloudState(rawState.cloud);
 
     return {
       version: STATE_VERSION,
@@ -1529,7 +1600,8 @@
       customWords,
       hiddenWords,
       baseWords,
-      view
+      view,
+      cloud
     };
   }
 
@@ -1541,6 +1613,7 @@
       customWords: [],
       hiddenWords: [],
       baseWords: [],
+      cloud: null,
       view: {
         mode: "build",
         scrollLeft: 0,
@@ -1549,7 +1622,7 @@
     };
   }
 
-  function createPortableState() {
+  function createPortableState(cloudOverride = state.cloud) {
     syncViewState();
     return {
       format: EXPORT_FORMAT,
@@ -1560,7 +1633,8 @@
       customWords: state.customWords,
       hiddenWords: state.hiddenWords,
       baseWords: baseWordBank,
-      view: state.view
+      view: state.view,
+      cloud: cloudOverride
     };
   }
 
@@ -1617,9 +1691,7 @@
   function applyImportedState(importedState) {
     cancelWordDrag();
     state = importedState;
-    if (state.baseWords.length > 0) {
-      baseWordBank = state.baseWords;
-    }
+    baseWordBank = state.baseWords.length > 0 ? state.baseWords : DEFAULT_WORDS;
     wordBank = mergeWordBank();
     isAddingWord = false;
     editing = null;
@@ -1628,6 +1700,389 @@
     persistState();
     render();
     restoreViewState();
+  }
+
+  function normalizeCloudState(rawCloud) {
+    if (!isRecord(rawCloud)) {
+      return null;
+    }
+
+    const treeId = typeof rawCloud.treeId === "string" ? rawCloud.treeId.trim() : "";
+    const name = cleanTreeName(typeof rawCloud.name === "string" ? rawCloud.name : "");
+    const maker = cleanMakerName(typeof rawCloud.maker === "string" ? rawCloud.maker : "");
+    if (!treeId || !name) {
+      return null;
+    }
+
+    return {
+      treeId,
+      name,
+      maker,
+      revision: Number.isInteger(rawCloud.revision) && rawCloud.revision > 0
+        ? rawCloud.revision
+        : 1,
+      createdAt: normalizeIsoDate(rawCloud.createdAt),
+      updatedAt: normalizeIsoDate(rawCloud.updatedAt)
+    };
+  }
+
+  function normalizeIsoDate(value) {
+    if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+      return null;
+    }
+
+    return new Date(value).toISOString();
+  }
+
+  function openCloudDialog() {
+    updateCloudCurrentCard();
+    if (!cloudDialog.open) {
+      cloudDialog.showModal();
+    }
+    loadCloudTreeList();
+  }
+
+  function closeCloudDialog() {
+    if (cloudDialog.open) {
+      cloudDialog.close();
+    }
+  }
+
+  function updateCloudCurrentCard() {
+    const cloud = state.cloud;
+    if (cloud) {
+      cloudCurrentTitle.textContent = cloud.name;
+      cloudCurrentDescription.textContent = cloud.maker
+        ? `Gemaakt door ${cloud.maker} · online versie ${cloud.revision}.`
+        : `Maker nog onbekend · online versie ${cloud.revision}.`;
+      cloudNameLabel.textContent = "Opgeslagen naam";
+      cloudMakerLabel.textContent = cloud.maker ? "Maker" : "Maker toevoegen";
+      cloudTreeNameInput.value = cloud.name;
+      cloudTreeMakerInput.value = cloud.maker;
+      cloudTreeNameInput.readOnly = true;
+      cloudTreeMakerInput.readOnly = Boolean(cloud.maker);
+      saveCloudTreeButton.textContent = "Wijzigingen opslaan";
+      cloudTreesButton.title = `Online opgeslagen als "${cloud.name}"`;
+      return;
+    }
+
+    cloudCurrentTitle.textContent = "Nog niet online opgeslagen";
+    cloudCurrentDescription.textContent = "Geef de boom en de maker een naam om hem vanaf andere apparaten te openen.";
+    cloudNameLabel.textContent = "Naam van de boom";
+    cloudMakerLabel.textContent = "Maker";
+    cloudTreeNameInput.readOnly = false;
+    cloudTreeMakerInput.readOnly = false;
+    cloudTreeNameInput.value = "";
+    cloudTreeMakerInput.value = loadPreferredMaker();
+    saveCloudTreeButton.textContent = "Online opslaan";
+    cloudTreesButton.title = "Bomen online opslaan of laden";
+  }
+
+  async function saveTreeToCloud() {
+    const existingCloud = state.cloud;
+    const requestedName = existingCloud ? existingCloud.name : cleanTreeName(cloudTreeNameInput.value);
+    const requestedMaker = existingCloud && existingCloud.maker
+      ? existingCloud.maker
+      : cleanMakerName(cloudTreeMakerInput.value);
+    if (!requestedName) {
+      setCloudStatus("Vul eerst een naam voor de boom in.", true);
+      cloudTreeNameInput.focus();
+      return;
+    }
+
+    if (!requestedMaker) {
+      setCloudStatus("Vul ook de naam van de maker in.", true);
+      cloudTreeMakerInput.focus();
+      return;
+    }
+
+    setCloudBusy(true);
+    setCloudStatus("De volledige boom wordt online opgeslagen...");
+
+    try {
+      const now = new Date().toISOString();
+      const treeId = existingCloud ? existingCloud.treeId : createId();
+      const remoteTree = existingCloud ? await getCloudTreeDocument(treeId, true) : null;
+      const revision = remoteTree ? remoteTree.revision + 1 : 1;
+      const createdAt = remoteTree ? remoteTree.createdAt : now;
+      const nextCloud = {
+        treeId,
+        name: requestedName,
+        maker: requestedMaker,
+        revision,
+        createdAt,
+        updatedAt: now
+      };
+      const portableState = createPortableState(nextCloud);
+      const serializedState = JSON.stringify(portableState);
+      if (new Blob([serializedState]).size > MAX_CLOUD_STATE_SIZE) {
+        throw new Error("Deze boom is te groot om online op te slaan.");
+      }
+
+      await writeCloudTree(nextCloud, serializedState);
+      state.cloud = nextCloud;
+      savePreferredMaker(requestedMaker);
+      persistState();
+      updateCloudCurrentCard();
+      await loadCloudTreeList(false);
+      setCloudStatus(`"${requestedName}" van ${requestedMaker} is online opgeslagen als versie ${revision}.`);
+    } catch (error) {
+      setCloudStatus(firebaseErrorMessage(error, "Opslaan is niet gelukt."), true);
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function loadCloudTreeList(showLoading = true) {
+    refreshCloudTreesButton.disabled = true;
+    if (showLoading) {
+      setCloudStatus("Beschikbare bomen worden geladen...");
+      cloudTreeList.innerHTML = "";
+    }
+
+    try {
+      const trees = await listCloudTrees();
+      renderCloudTreeList(trees);
+      setCloudStatus(trees.length === 0
+        ? "Er zijn nog geen bomen online opgeslagen."
+        : `${trees.length} ${trees.length === 1 ? "boom is" : "bomen zijn"} beschikbaar.`);
+    } catch (error) {
+      setCloudStatus(firebaseErrorMessage(error, "De bomen konden niet worden geladen."), true);
+    } finally {
+      refreshCloudTreesButton.disabled = false;
+    }
+  }
+
+  function renderCloudTreeList(trees) {
+    cloudTreeList.innerHTML = "";
+
+    for (const tree of trees) {
+      const item = document.createElement("article");
+      const details = document.createElement("div");
+      const name = document.createElement("span");
+      const maker = document.createElement("span");
+      const meta = document.createElement("span");
+      const button = document.createElement("button");
+      const isCurrent = state.cloud && state.cloud.treeId === tree.treeId;
+
+      item.className = `cloud-tree-item${isCurrent ? " is-current" : ""}`;
+      name.className = "cloud-tree-name";
+      name.textContent = tree.name;
+      maker.className = "cloud-tree-maker";
+      maker.textContent = `Gemaakt door ${tree.maker || "Onbekende maker"}`;
+      meta.className = "cloud-tree-meta";
+      meta.textContent = `${formatCloudDate(tree.updatedAt)} · ${tree.categoryCount} categorieën · ${tree.placedWordCount} geplaatst · versie ${tree.revision}`;
+      button.type = "button";
+      button.dataset.cloudTreeId = tree.treeId;
+      button.textContent = isCurrent ? "Opnieuw laden" : "Laden";
+      details.append(name, maker, meta);
+      item.append(details, button);
+      cloudTreeList.appendChild(item);
+    }
+  }
+
+  async function loadTreeFromCloud(treeId) {
+    if (hasSavedWork() && !window.confirm("Dit vervangt je huidige boom en niet-online-opgeslagen wijzigingen. Weet je het zeker?")) {
+      return;
+    }
+
+    setCloudBusy(true);
+    setCloudStatus("De gekozen boom wordt geladen...");
+
+    try {
+      const cloudTree = await getCloudTreeDocument(treeId);
+      if (!cloudTree) {
+        throw new Error("Deze boom bestaat niet meer.");
+      }
+
+      const importedState = parseImportedState(JSON.parse(cloudTree.serializedState));
+      importedState.cloud = {
+        treeId: cloudTree.treeId,
+        name: cloudTree.name,
+        maker: cloudTree.maker,
+        revision: cloudTree.revision,
+        createdAt: cloudTree.createdAt,
+        updatedAt: cloudTree.updatedAt
+      };
+      savePreferredMaker(cloudTree.maker);
+      applyImportedState(importedState);
+      closeCloudDialog();
+    } catch (error) {
+      setCloudStatus(firebaseErrorMessage(error, "Laden is niet gelukt."), true);
+    } finally {
+      setCloudBusy(false);
+    }
+  }
+
+  async function listCloudTrees() {
+    const trees = [];
+    let pageToken = "";
+
+    do {
+      const url = new URL(`${FIRESTORE_BASE_URL}/trees`);
+      url.searchParams.set("key", FIREBASE_API_KEY);
+      url.searchParams.set("pageSize", "100");
+      ["name", "maker", "updatedAt", "revision", "categoryCount", "placedWordCount"].forEach((field) => {
+        url.searchParams.append("mask.fieldPaths", field);
+      });
+      if (pageToken) {
+        url.searchParams.set("pageToken", pageToken);
+      }
+
+      const response = await firebaseFetch(url);
+      for (const document of response.documents || []) {
+        trees.push(decodeCloudTreeDocument(document, false));
+      }
+      pageToken = response.nextPageToken || "";
+    } while (pageToken);
+
+    return trees.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  }
+
+  async function getCloudTreeDocument(treeId, allowMissing = false) {
+    const url = new URL(`${FIRESTORE_BASE_URL}/trees/${encodeURIComponent(treeId)}`);
+    url.searchParams.set("key", FIREBASE_API_KEY);
+    const document = await firebaseFetch(url, {}, allowMissing);
+    return document ? decodeCloudTreeDocument(document, true) : null;
+  }
+
+  async function writeCloudTree(cloud, serializedState) {
+    const url = new URL(`${FIRESTORE_BASE_URL}/trees/${encodeURIComponent(cloud.treeId)}`);
+    url.searchParams.set("key", FIREBASE_API_KEY);
+    await firebaseFetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fields: {
+          name: { stringValue: cloud.name },
+          maker: { stringValue: cloud.maker },
+          state: { stringValue: serializedState },
+          createdAt: { timestampValue: cloud.createdAt },
+          updatedAt: { timestampValue: cloud.updatedAt },
+          revision: { integerValue: String(cloud.revision) },
+          categoryCount: { integerValue: String(countAllCategories()) },
+          placedWordCount: { integerValue: String(getValidPlacements().length) }
+        }
+      })
+    });
+  }
+
+  async function firebaseFetch(url, options = {}, allowMissing = false) {
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      throw new Error("Geen verbinding met Firebase.");
+    }
+
+    if (allowMissing && response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = "";
+      try {
+        const body = await response.json();
+        message = body.error && body.error.message ? body.error.message : "";
+      } catch (error) {
+        message = "";
+      }
+      const firebaseError = new Error(message || `Firebase gaf foutcode ${response.status}.`);
+      firebaseError.status = response.status;
+      throw firebaseError;
+    }
+
+    return response.status === 204 ? null : response.json();
+  }
+
+  function decodeCloudTreeDocument(document, includeState) {
+    const fields = document.fields || {};
+    const tree = {
+      treeId: document.name.split("/").pop(),
+      name: fields.name && fields.name.stringValue ? fields.name.stringValue : "Naamloze boom",
+      maker: fields.maker && fields.maker.stringValue ? fields.maker.stringValue : "",
+      revision: Number(fields.revision && fields.revision.integerValue) || 1,
+      createdAt: fields.createdAt && fields.createdAt.timestampValue
+        ? fields.createdAt.timestampValue
+        : document.createTime,
+      updatedAt: fields.updatedAt && fields.updatedAt.timestampValue
+        ? fields.updatedAt.timestampValue
+        : document.updateTime,
+      categoryCount: Number(fields.categoryCount && fields.categoryCount.integerValue) || 0,
+      placedWordCount: Number(fields.placedWordCount && fields.placedWordCount.integerValue) || 0
+    };
+
+    if (includeState) {
+      tree.serializedState = fields.state && fields.state.stringValue ? fields.state.stringValue : "";
+    }
+
+    return tree;
+  }
+
+  function countAllCategories() {
+    return state.roots.reduce((total, root) => total + countNodes(root), 0);
+  }
+
+  function formatCloudDate(value) {
+    if (!value || !Number.isFinite(Date.parse(value))) {
+      return "Onbekende datum";
+    }
+
+    return new Intl.DateTimeFormat("nl-NL", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(new Date(value));
+  }
+
+  function setCloudStatus(message, isError = false) {
+    cloudStatus.textContent = message;
+    cloudStatus.classList.toggle("is-error", isError);
+  }
+
+  function setCloudBusy(isBusy) {
+    saveCloudTreeButton.disabled = isBusy;
+    cloudTreeNameInput.disabled = isBusy;
+    cloudTreeMakerInput.disabled = isBusy;
+    cloudTreeList.querySelectorAll("button").forEach((button) => {
+      button.disabled = isBusy;
+    });
+  }
+
+  function firebaseErrorMessage(error, fallback) {
+    if (error.status === 403) {
+      return "Firebase weigert toegang. Controleer of de Firestore-regels zijn gepubliceerd.";
+    }
+    if (error.status === 404) {
+      return "De gekozen boom bestaat niet meer.";
+    }
+    return error.message || fallback;
+  }
+
+  function loadPreferredMaker() {
+    try {
+      return cleanMakerName(localStorage.getItem(MAKER_STORAGE_KEY) || "");
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function savePreferredMaker(maker) {
+    const cleanedMaker = cleanMakerName(maker || "");
+    if (!cleanedMaker) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(MAKER_STORAGE_KEY, cleanedMaker);
+    } catch (error) {
+      // De boom kan nog steeds worden opgeslagen als lokale voorkeuren niet beschikbaar zijn.
+    }
+  }
+
+  function createId() {
+    return crypto.randomUUID
+      ? crypto.randomUUID()
+      : `tree-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
   function hasSavedWork() {

@@ -33,6 +33,7 @@
     <div class="toolbar" aria-label="Acties">
       <button id="reset-tree" class="reset-tree-button" type="button">Nieuwe boom</button>
       <button id="load-example" type="button">Voorbeeld laden</button>
+      <button id="cloud-trees" class="cloud-trees-button" type="button">Bomen opslaan/laden</button>
       <button id="import-json" type="button">JSON importeren</button>
       <button id="export-json" type="button">JSON exporteren</button>
       <input id="import-json-file" type="file" accept=".json,application/json" hidden>
@@ -87,6 +88,56 @@
         <button id="cancel-delete" class="button-secondary" type="button">Niet verwijderen</button>
         <button id="confirm-delete" class="button-danger" type="button">Verwijderen</button>
       </div>
+    </section>
+  </dialog>
+
+  <dialog id="cloud-dialog" class="cloud-dialog">
+    <section class="cloud-panel" aria-labelledby="cloud-dialog-title">
+      <header class="cloud-panel-header">
+        <div>
+          <span class="cloud-kicker">Firebase</span>
+          <h2 id="cloud-dialog-title">Bomen opslaan en laden</h2>
+        </div>
+        <button id="close-cloud-dialog" class="cloud-close-button" type="button" aria-label="Sluiten">&times;</button>
+      </header>
+
+      <section class="cloud-current-card" aria-labelledby="cloud-current-title">
+        <div>
+          <span class="cloud-card-label">Huidige boom</span>
+          <h3 id="cloud-current-title">Nog niet online opgeslagen</h3>
+          <p id="cloud-current-description">Geef de boom en de maker een naam om hem vanaf andere apparaten te openen.
+          </p>
+        </div>
+        <form id="save-cloud-form" class="cloud-save-form">
+          <div class="cloud-fields">
+            <label>
+              <span id="cloud-name-label">Naam van de boom</span>
+              <input id="cloud-tree-name" name="treeName" type="text" maxlength="80" autocomplete="off"
+                placeholder="Mijn boom">
+            </label>
+            <label>
+              <span id="cloud-maker-label">Maker</span>
+              <input id="cloud-tree-maker" name="treeMaker" type="text" maxlength="60" autocomplete="name"
+                placeholder="Mijn naam">
+            </label>
+          </div>
+          <div class="cloud-save-action">
+            <button id="save-cloud-tree" type="submit">Online opslaan</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="cloud-library" aria-labelledby="cloud-library-title">
+        <div class="cloud-library-heading">
+          <div>
+            <h3 id="cloud-library-title">Beschikbare bomen</h3>
+            <p>Iedereen kan deze publieke bomen openen.</p>
+          </div>
+          <button id="refresh-cloud-trees" class="button-secondary" type="button">Vernieuwen</button>
+        </div>
+        <p id="cloud-status" class="cloud-status" role="status">Bomen worden geladen...</p>
+        <div id="cloud-tree-list" class="cloud-tree-list"></div>
+      </section>
     </section>
   </dialog>
 

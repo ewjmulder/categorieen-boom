@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function validTree() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'maker',
+          'state',
+          'createdAt',
+          'updatedAt',
+          'revision',
+          'categoryCount',
+          'placedWordCount'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.maker is string
+        && request.resource.data.maker.size() > 0
+        && request.resource.data.maker.size() <= 60
+        && request.resource.data.state is string
+        && request.resource.data.state.size() <= 900000
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.revision is int
+        && request.resource.data.revision > 0
+        && request.resource.data.categoryCount is int
+        && request.resource.data.categoryCount >= 0
+        && request.resource.data.placedWordCount is int
+        && request.resource.data.placedWordCount >= 0;
+    }
+
+    match /trees/{treeId} {
+      allow read: if true;
+      allow create: if validTree()
+        && request.resource.data.revision == 1;
+      allow update: if validTree()
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+    }
+  }
+}

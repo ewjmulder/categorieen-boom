@@ -1,21 +1,61 @@
 {
+  "firestore": {
+    "database": "(default)",
+    "location": "europe-west4",
+    "rules": "firestore.rules"
+  },
   "hosting": {
     "public": ".",
     "ignore": [
       "firebase.json",
       ".firebaserc",
+      ".git/**",
+      ".firebase/**",
+      ".agents/**",
+      ".codex/**",
       "**/.*",
       "**/node_modules/**",
       "README.md",
+      "deploy.sh",
+      "firestore.rules",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
       "scripts/**"
     ],
     "headers": [
       {
-        "source": "/index.html",
+        "source": "/",
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "no-cache"
+            "value": "no-store, max-age=0, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, max-age=0, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.css",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, max-age=0, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "**/*.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store, max-age=0, must-revalidate"
           }
         ]
       },

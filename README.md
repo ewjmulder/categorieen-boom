@@ -17,8 +17,7 @@ Open daarna `http://localhost:8000`.
 De app heeft geen buildstap en geen dependencies. Voor deployment is alleen de
 [Firebase CLI](https://firebase.google.com/docs/cli) nodig.
 
-1. Maak in de Firebase Console een project aan of kies een bestaand project.
-2. Installeer de CLI en log in:
+1. Installeer de CLI en log in:
 
 ```bash
 npm install -g firebase-tools
@@ -28,21 +27,16 @@ firebase login
 Gebruik `firebase login --reauth` als de CLI meldt dat bestaande inloggegevens
 zijn verlopen.
 
-3. Deploy de site met het Firebase-project-ID:
+2. Deploy de site en Firestore-regels:
 
 ```bash
-./scripts/deploy-firebase.sh jouw-project-id
+./deploy.sh
 ```
 
-Het project-ID staat in de Firebase Console bij **Projectinstellingen**. Je kunt
-het ook via een omgevingsvariabele instellen:
-
-```bash
-FIREBASE_PROJECT_ID=jouw-project-id ./scripts/deploy-firebase.sh
-```
-
-Het script publiceert via Firebase Hosting alleen de statische websitebestanden.
-De gegevens blijven voorlopig lokaal in de browser opgeslagen.
+De app gebruikt Firebase Hosting en Cloud Firestore in project
+`categorieen-boom`. Het script publiceert de statische website en de
+Firestore-regels samen. HTML, CSS en JavaScript krijgen `Cache-Control:
+no-store`; het script controleert die live headers na iedere deployment.
 
 ## Gegevens
 
@@ -56,6 +50,17 @@ Met **JSON exporteren** download je een transporteerbaar bestand met:
 
 Met **JSON importeren** laad je zo'n bestand op een ander apparaat of in een
 andere browser weer in. Eerdere exports met formaatversie 1 blijven ondersteund.
+
+Met **Bomen opslaan/laden** kan dezelfde volledige state publiek in Cloud
+Firestore worden opgeslagen. Iedere boom krijgt een unieke ID, waardoor
+verschillende bomen dezelfde zichtbare naam mogen hebben. Na het laden blijft de
+Firebase-ID lokaal gekoppeld; opnieuw opslaan werkt dan diezelfde boom bij.
+Bij het opslaan wordt ook de naam van de maker vastgelegd en in de openbare
+bomenlijst getoond.
+
+De gedeelde bomen zijn bewust zonder account leesbaar en overschrijfbaar. De
+regels beperken documenten wel tot het verwachte formaat en staan verwijderen
+niet toe.
 
 `voorbeeld.json` bevat de voorbeeldboom en kan handmatig worden aangepast.
 
